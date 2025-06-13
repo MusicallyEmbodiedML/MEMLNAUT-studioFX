@@ -40,7 +40,7 @@ public:
         };
     }
 
-    static constexpr size_t kN_Params = 9;
+    static constexpr size_t kN_Params = 14;
 
     FXProcessorAudioApp() : AudioAppBase(),
         setup_(false),
@@ -65,6 +65,11 @@ public:
         y = eq2.play(y);
         y = eq3.play(y);
         // y *= ;
+        float dist = asymDist.asymclip(y, asymBelow, asymAbove);
+
+        y = (sqrtf(asymMix) * y) + (sqrtf(1.f-asymMix) * dist);
+
+        // y = compressor.compress(y, 0, 1, 0);
 
         stereosample_t ret { y, y };
         return ret;
@@ -84,6 +89,14 @@ public:
     void ProcessParams(const std::vector<float>& params) override
     {
         target_params_ = params;
+        const float eq1Freq = 20.f + (params[0] * params[0] * 300.f);
+        eq1.set(maxiBiquad::PEAK, eq1Freq, 0.1f + params[1] * 12.f, LinearMap_(params[2], -20.f,20.f));
+
+        const float eq2Freq = 300.f + (params[3] * params[3] * 1500.f);
+        eq2.set(maxiBiquad::PEAK, eq2Freq, 0.1f + params[4] * 12.f, LinearMap_(params[5], -20.f,20.f));
+
+        const float eq3Freq = 1500.f + (params[6] * params[6] * 10000.f);
+        eq3.set(maxiBiquad::PEAK, eq3Freq, 0.1f + params[7] * 12.f, LinearMap_(params[8], -20.f,20.f));
     }
 
 protected:
@@ -98,6 +111,15 @@ protected:
     float t=0;
 
     maxiBiquad eq1, eq2, eq3;
+    maxiNonlinearity asymDist;
+    maxiDynamics compressor;
+
+    float asymBelow=1.f;
+    float asymAbove = 1.f;
+    float asymMix = 1.f;
+
+    float compressionThreshold = 0.f;
+    float compressionRatio = 1.f;
 
     /**
      * @brief Linear mapping function
@@ -146,15 +168,13 @@ protected:
 
     void SmoothParams_() {
         smoother_.Process(target_params_.data(), smoothed_params_.data());
-        
-        const float eq1Freq = 20.f + (smoothed_params_[0] * smoothed_params_[0] * 180.f);
-        eq1.set(maxiBiquad::PEAK, eq1Freq, 0.1f + smoothed_params_[1] * 12.f, LinearMap_(smoothed_params_[2], -20.f,20.f));
 
-        const float eq2Freq = 200.f + (smoothed_params_[3] * smoothed_params_[3] * 1000.f);
-        eq2.set(maxiBiquad::PEAK, eq2Freq, 0.1f + smoothed_params_[4] * 12.f, LinearMap_(smoothed_params_[5], -20.f,20.f));
+        asymAbove = LinearMap_(smoothed_params_[9], 0.33f, 3.0f);
+        asymBelow = LinearMap_(smoothed_params_[10], 0.33f, 3.0f);
+        asymMix = smoothed_params_[11] * smoothed_params_[11];
 
-        const float eq3Freq = 1200.f + (smoothed_params_[6] * smoothed_params_[6] * 10000.f);
-        eq3.set(maxiBiquad::PEAK, eq3Freq, 0.1f + smoothed_params_[7] * 12.f, LinearMap_(smoothed_params_[8], -20.f,20.f));
+        compressionThreshold = LinearMap_(smoothed_params_[12], 0, 30.f);
+        compressionRatio = LinearMap_(smoothed_params_[13], 1.f, 12.f);
 
         // PERIODIC_DEBUG(4000, {
         //     Serial.printf("EQ1: Freq: %.2f\n", smoothed_params_[0]);
